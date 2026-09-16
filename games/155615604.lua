@@ -1993,20 +1993,20 @@ run(function()
 		Tooltip = 'aesthetical, just remove collisions on vehicles please, this is the worst.'
 	})
 
-	Movement = KickAll:CreateToggle({
+	Movement = KickPlayer:CreateToggle({
 		Name = 'Movement',
 		Default = true
 	})
 
-	GuardTarget = KickAll:CreateDropdown({
+	GuardTarget = KickPlayer:CreateDropdown({
 		Name = 'Guard',
 		List = playerNames('Guards')
 	})
-	InmateTarget = KickAll:CreateDropdown({
+	InmateTarget = KickPlayer:CreateDropdown({
 		Name = 'Inmates',
 		List = playerNames('Inmates')
 	})
-	CriminalTarget = KickAll:CreateDropdown({
+	CriminalTarget = KickPlayer:CreateDropdown({
 		Name = 'Criminals',
 		List = playerNames('Criminals')
 	})
