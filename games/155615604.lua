@@ -1834,6 +1834,7 @@ run(function()
 	local GuardTarget
 	local InmateTarget
 	local CriminalTarget
+	local NeutralTarget
 
 	local activeTarget = nil
 	local watcherConns = {}
@@ -1864,6 +1865,7 @@ run(function()
 		GuardTarget:Change(playerNames('Guards'))
 		InmateTarget:Change(playerNames('Inmates'))
 		CriminalTarget:Change(playerNames('Criminals'))
+		NeutralTarget:Change(playerNames('Neutral'))
 	end
 
 	local function findEntity(player)
