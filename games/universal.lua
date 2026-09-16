@@ -3763,35 +3763,149 @@ end)
 
 run(function()
 	local DiedTP
+	local Delay
+	local Offset
 	local lastCFrame
+	local lastGroundCFrame
+	local deathCFrame
+	local isDead = false
+	
+	local function hookCharacter(character)
+		if not character then return end
+		local hum = character:WaitForChild('Humanoid', 5)
+		if hum then
+			hum.Died:Connect(function()
+				if not isDead and lastCFrame then
+					deathCFrame = lastCFrame
+					isDead = true
+				end
+			end)
+		end
+	end
 	
 	DiedTP = vape.Categories.Blatant:CreateModule({
 		Name = 'DiedTP',
 		Function = function(callback)
 			if not callback then
 				lastCFrame = nil
+				lastGroundCFrame = nil
+				deathCFrame = nil
+				isDead = false
 				return
 			end
 	
+			if lplr.Character then
+				hookCharacter(lplr.Character)
+			end
+	
 			DiedTP:Clean(runService.PreSimulation:Connect(function()
-				if entitylib.isAlive then
-					lastCFrame = entitylib.character.RootPart.CFrame
+				local character = lplr.Character
+				if not character or not character:IsDescendantOf(workspace) then return end
+	
+				local hum = character:FindFirstChildOfClass('Humanoid')
+				local root = character:FindFirstChild('HumanoidRootPart')
+	
+				if hum and root and hum.Health > 0 then
+					local fallenY = (workspace.FallenPartsDestroyHeight or -500) + 50
+					if root.Position.Y > fallenY then
+						lastCFrame = root.CFrame
+						if hum.FloorMaterial ~= Enum.Material.Air then
+							lastGroundCFrame = root.CFrame
+						end
+						isDead = false
+					end
+				elseif hum and hum.Health <= 0 and not isDead then
+					isDead = true
+					local fallenY = (workspace.FallenPartsDestroyHeight or -500) + 50
+					if root and root.Position.Y <= fallenY and lastGroundCFrame then
+						deathCFrame = lastGroundCFrame
+					elseif lastCFrame then
+						deathCFrame = lastCFrame
+					end
+				end
+			end))
+	
+			DiedTP:Clean(lplr.CharacterRemoving:Connect(function()
+				if not isDead and lastCFrame then
+					deathCFrame = lastCFrame
+					isDead = true
 				end
 			end))
 	
 			DiedTP:Clean(lplr.CharacterAdded:Connect(function(character)
-				local returnCFrame = lastCFrame
-				local root = character:WaitForChild('HumanoidRootPart', 5)
-				if root and returnCFrame then
-					if DiedTP.Enabled and character.Parent then
-						character:PivotTo(returnCFrame)
+				hookCharacter(character)
+	
+				local targetCFrame = deathCFrame or lastCFrame
+				if not targetCFrame then return end
+	
+				task.spawn(function()
+					local startWait = os.clock()
+					while DiedTP.Enabled and not character:IsDescendantOf(workspace) do
+						if (os.clock() - startWait) > 10 then return end
+						task.wait()
 					end
-				end
+					if not DiedTP.Enabled then return end
+	
+					local root = character:WaitForChild('HumanoidRootPart', 10)
+					local hum = character:WaitForChild('Humanoid', 10)
+					if not root or not hum then return end
+	
+					local waitTime = Delay and Delay.Value or 0.25
+					if waitTime > 0 then
+						task.wait(waitTime)
+					end
+	
+					if not DiedTP.Enabled or not character:IsDescendantOf(workspace) or hum.Health <= 0 then
+						return
+					end
+	
+					local heightOffset = Offset and Vector3.new(0, Offset.Value, 0) or Vector3.new(0, 1, 0)
+					local destination = targetCFrame + heightOffset
+	
+					for i = 1, 8 do
+						if not DiedTP.Enabled or not character:IsDescendantOf(workspace) or hum.Health <= 0 then
+							break
+						end
+						root.AssemblyLinearVelocity = Vector3.zero
+						root.AssemblyAngularVelocity = Vector3.zero
+						if not character.PrimaryPart then
+							character.PrimaryPart = root
+						end
+						character:PivotTo(destination)
+						root.CFrame = destination
+						runService.PreSimulation:Wait()
+					end
+	
+					isDead = false
+					deathCFrame = nil
+					notif('DiedTP', 'Teleported to death location.', 3)
+				end)
 			end))
 		end,
 		Tooltip = 'Teleports you back to your last position after respawning.'
 	})
 	
+	Delay = DiedTP:CreateSlider({
+		Name = 'Teleport Delay',
+		Min = 0,
+		Max = 1,
+		Decimal = 100,
+		Default = 0.25,
+		Suffix = function(val)
+			return val == 1 and 'second' or 'seconds'
+		end
+	})
+	
+	Offset = DiedTP:CreateSlider({
+		Name = 'Height Offset',
+		Min = 0,
+		Max = 5,
+		Decimal = 10,
+		Default = 1,
+		Suffix = function(val)
+			return val == 1 and 'stud' or 'studs'
+		end
+	})
 end)
 
 run(function()
