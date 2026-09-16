@@ -1743,10 +1743,6 @@ run(function()
 		__mode = 'k'
 	})
 
-	local FLING_VELOCITY = 100000
-	local FLING_ANGULAR  = 5000
-	local REAPPLY_TICKS  = 3
-
 	local function getTarget(seat)
 		if tempList[seat] and tempList[seat].Health > 0 and not tempList[seat].Humanoid.Sit then
 			return tempList[seat]
@@ -1771,45 +1767,6 @@ run(function()
 			end
 
 			table.clear(cloned)
-		end
-	end
-
-	local function hardFling(seat, target)
-		local randX = math.random(-1, 1)
-		local randZ = math.random(-1, 1)
-		local vel = Vector3.new(
-			FLING_VELOCITY * (randX == 0 and 1 or randX),
-			FLING_VELOCITY,
-			FLING_VELOCITY * (randZ == 0 and 1 or randZ)
-		)
-		local ang = Vector3.new(
-			FLING_ANGULAR * (math.random() > 0.5 and 1 or -1),
-			FLING_ANGULAR,
-			FLING_ANGULAR * (math.random() > 0.5 and 1 or -1)
-		)
-
-		seat.CFrame = CFrame.new(target.RootPart.Position) * CFrame.Angles(
-			math.random() * math.pi * 2,
-			math.random() * math.pi * 2,
-			math.random() * math.pi * 2
-		)
-		sethiddenproperty(seat, 'PhysicsRepRootPart', target.RootPart)
-
-		seat.AssemblyLinearVelocity  = vel
-		seat.AssemblyAngularVelocity = ang
-
-		task.spawn(function()
-			for _ = 1, REAPPLY_TICKS do
-				if not seat or not seat.Parent then break end
-				seat.AssemblyLinearVelocity  = vel
-				seat.AssemblyAngularVelocity = ang
-				runService.Heartbeat:Wait()
-			end
-		end)
-
-		local wheels = seat.Parent and seat.Parent.Parent and seat.Parent.Parent:FindFirstChild('Wheels')
-		if wheels then
-			wheels:Destroy()
 		end
 	end
 
@@ -1842,7 +1799,14 @@ run(function()
 							if isnetworkowner(seat) then
 								local target = getTarget(seat)
 								if target then
-									hardFling(seat, target)
+									seat.AssemblyLinearVelocity = Vector3.new(10000, 10000, 0)
+									seat.CFrame = CFrame.new(target.RootPart.Position) * CFrame.new(-2, -2, -12)
+									sethiddenproperty(seat, 'PhysicsRepRootPart', target.RootPart)
+
+									local wheels = seat.Parent.Parent:FindFirstChild('Wheels')
+									if wheels then
+										wheels:Destroy()
+									end
 								end
 							end
 						end
@@ -1872,11 +1836,7 @@ run(function()
 	local CriminalTarget
 
 	local activeTarget = nil
-	local connections = {}
-
-	local FLING_VELOCITY = 100000
-	local FLING_ANGULAR  = 5000
-	local REAPPLY_TICKS  = 3
+	local watcherConns = {}
 
 	local function playerNames(teamName)
 		local names = {'None'}
@@ -1929,8 +1889,6 @@ run(function()
 		local targetPlayer = selectedTarget()
 		if not targetPlayer then return end
 
-		activeTarget = targetPlayer
-
 		local cached = tempList[seat]
 		if cached and cached.Player == targetPlayer and isValidTarget(cached) then
 			return cached
@@ -1944,57 +1902,34 @@ run(function()
 		return entity
 	end
 
-	local function hardFling(seat, target)
-		local randX = math.random(-1, 1)
-		local randZ = math.random(-1, 1)
-		local vel = Vector3.new(
-			FLING_VELOCITY * (randX == 0 and 1 or randX),
-			FLING_VELOCITY,
-			FLING_VELOCITY * (randZ == 0 and 1 or randZ)
-		)
-		local ang = Vector3.new(
-			FLING_ANGULAR * (math.random() > 0.5 and 1 or -1),
-			FLING_ANGULAR,
-			FLING_ANGULAR * (math.random() > 0.5 and 1 or -1)
-		)
-
-		seat.CFrame = CFrame.new(target.RootPart.Position) * CFrame.Angles(
-			math.random() * math.pi * 2,
-			math.random() * math.pi * 2,
-			math.random() * math.pi * 2
-		)
+	local function flingSeat(seat, target)
+		seat.AssemblyLinearVelocity = Vector3.new(10000, 10000, 0)
+		seat.CFrame = CFrame.new(target.RootPart.Position) * CFrame.new(-2, -2, -12)
 		sethiddenproperty(seat, 'PhysicsRepRootPart', target.RootPart)
 
-		seat.AssemblyLinearVelocity  = vel
-		seat.AssemblyAngularVelocity = ang
-
-		task.spawn(function()
-			for _ = 1, REAPPLY_TICKS do
-				if not seat or not seat.Parent then break end
-				seat.AssemblyLinearVelocity  = vel
-				seat.AssemblyAngularVelocity = ang
-				runService.Heartbeat:Wait()
-			end
-		end)
-
-		local wheels = seat.Parent and seat.Parent.Parent and seat.Parent.Parent:FindFirstChild('Wheels')
+		local wheels = seat.Parent.Parent:FindFirstChild('Wheels')
 		if wheels then
 			wheels:Destroy()
 		end
 	end
 
-	local function watchTarget(plr)
-		for _, conn in connections do
+	local function clearWatchers()
+		for _, conn in watcherConns do
 			conn:Disconnect()
 		end
-		table.clear(connections)
+		table.clear(watcherConns)
+		activeTarget = nil
+	end
 
-		activeTarget = plr
+	local function watchTarget(plr)
+		clearWatchers()
 		if not plr then return end
 
-		table.insert(connections, playersService.PlayerRemoving:Connect(function(removed)
-			if removed == plr and KickPlayer.Enabled then
-				notif('KickPlayer', plr.Name..' has been kicked / left. Disabling.', 5, 'success')
+		activeTarget = plr
+
+		table.insert(watcherConns, playersService.PlayerRemoving:Connect(function(removed)
+			if removed == plr and KickPlayer and KickPlayer.Enabled then
+				notif('KickPlayer', plr.Name..' has been kicked / left. Disabling.', 5)
 				task.defer(function()
 					if KickPlayer.Enabled then
 						KickPlayer:Toggle()
@@ -2002,19 +1937,6 @@ run(function()
 				end)
 			end
 		end))
-
-		task.spawn(function()
-			while KickPlayer.Enabled and activeTarget == plr and plr.Parent do
-				local char = plr.Character
-				local hum = char and char:FindFirstChildOfClass('Humanoid')
-				if char and hum then
-					local root = char:FindFirstChild('HumanoidRootPart')
-					if root and root.AssemblyLinearVelocity.Magnitude > 100000 then
-					end
-				end
-				task.wait(0.5)
-			end
-		end)
 	end
 
 	KickPlayer = vape.Categories.Blatant:CreateModule({
@@ -2035,7 +1957,7 @@ run(function()
 						end
 
 						local root = entitylib.character.RootPart
-						if Movement and Movement.Enabled and ((root.Position - Vector3.new(633, 98, 2489)).Magnitude < 40 or (os.clock() - entitylib.character.SpawnTime) < 0.4) then
+						if Movement.Enabled and ((root.Position - Vector3.new(633, 98, 2489)).Magnitude < 40 or (os.clock() - entitylib.character.SpawnTime) < 0.4) then
 							root.CFrame = CFrame.new(Vector3.new(612 + math.sin(os.clock() * 1.3) * 12, 90, 2494))
 							root.AssemblyLinearVelocity = Vector3.zero
 						end
@@ -2054,7 +1976,7 @@ run(function()
 								if isnetworkowner(seat) then
 									local target = getTarget(seat)
 									if target then
-										hardFling(seat, target)
+										flingSeat(seat, target)
 									end
 								end
 							end
@@ -2062,15 +1984,10 @@ run(function()
 					end
 				end))
 			else
-				-- cleanup
-				for _, conn in connections do
-					conn:Disconnect()
-				end
-				table.clear(connections)
-				activeTarget = nil
+				clearWatchers()
 			end
 		end,
-		Tooltip = 'Kicks player specifically. Auto-disables after the target is kicked.'
+		Tooltip = 'Kicks player specifically. Auto-disables once the target is kicked.'
 	})
 
 	Movement = KickPlayer:CreateToggle({
