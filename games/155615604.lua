@@ -1919,21 +1919,40 @@ run(function()
 	end
 
 	local function findEntity(player)
-		if not entitylib.isAlive then return end
-		for _, entity in entitylib.List do
-			if entity.Player == player then
-				return entity
+		if entitylib.isAlive then
+			for _, entity in entitylib.List do
+				if entity.Player == player then
+					return entity
+				end
+			end
+		end
+
+		-- Fallback: entitylib usually drops dead players from .List, so build a
+		-- minimal stand-in from the corpse's character so we can keep flinging it.
+		local char = player.Character
+		if char then
+			local hum = char:FindFirstChildOfClass('Humanoid')
+			local root = char:FindFirstChild('HumanoidRootPart')
+			if hum and root then
+				return {
+					Player = player,
+					Character = char,
+					Humanoid = hum,
+					RootPart = root,
+					SpawnTime = 0,
+				}
 			end
 		end
 	end
 
 	local function isValidTarget(entity)
 		if not entity then return false end
-		if not entity.Humanoid or entity.Humanoid.Health <= 0 then return false end
+		if not entity.Humanoid then return false end
 		if entity.Humanoid.Sit and entity.Humanoid.SeatPart and entity.Humanoid.SeatPart.Anchored then return false end
 		if not select(2, whitelist:get(entity.Player)) then return false end
 		if entity.Player.Team == teams.Neutral then return false end
-		if (os.clock() - entity.SpawnTime) <= 5 then return false end
+		-- Only apply spawn protection while alive; dead targets bypass it.
+		if entity.Humanoid.Health > 0 and (os.clock() - entity.SpawnTime) <= 5 then return false end
 		return true
 	end
 
@@ -1941,8 +1960,10 @@ run(function()
 		local targetPlayer = selectedTarget()
 		if not targetPlayer then return end
 
+		-- Cache check no longer requires Health > 0, so a dead target stays cached
+		-- and we keep flinging the corpse.
 		local cached = tempList[seat]
-		if cached and cached.Player == targetPlayer and cached.Health > 0 and not cached.Humanoid.Sit then
+		if cached and cached.Player == targetPlayer and cached.Humanoid and not cached.Humanoid.Sit then
 			return cached
 		end
 
@@ -1954,10 +1975,31 @@ run(function()
 		return entity
 	end
 
+	local function getFlingPart(entity)
+		local root = entity.RootPart
+		if not root then return end
+
+		local isDead = entity.Humanoid and entity.Humanoid.Health <= 0
+		if not isDead then
+			return root
+		end
+
+		local char = root.Parent
+		if not char then return root end
+
+		return char:FindFirstChild('UpperTorso')
+			or char:FindFirstChild('Torso')
+			or char:FindFirstChild('Head')
+			or root
+	end
+
 	local function flingSeat(seat, target)
+		local part = getFlingPart(target)
+		if not part then return end
+
 		seat.AssemblyLinearVelocity = Vector3.new(10000, 10000, 0)
-		seat.CFrame = CFrame.new(target.RootPart.Position) * CFrame.new(-2, -2, -12)
-		sethiddenproperty(seat, 'PhysicsRepRootPart', target.RootPart)
+		seat.CFrame = CFrame.new(part.Position) * CFrame.new(-2, -2, -12)
+		sethiddenproperty(seat, 'PhysicsRepRootPart', part)
 
 		local wheels = seat.Parent.Parent:FindFirstChild('Wheels')
 		if wheels then
