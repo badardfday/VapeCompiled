@@ -1990,7 +1990,7 @@ run(function()
 		RunFunction = function()
 			runFlingOnce()
 		end,
-		Tooltip = 'aesthetical, just remove collisions on vehicles please, this is the worst.'
+		Tooltip = 'Kicks player specifically'
 	})
 
 	Movement = KickPlayer:CreateToggle({
