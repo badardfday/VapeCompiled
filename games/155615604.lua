@@ -1736,103 +1736,280 @@ end)
 
 run(function()
 	local KickAll
-local Movement
-local AutoRejoin
-local didClick = {}
-local lastFling = {}
-local tempList = setmetatable({}, {
-	__mode = 'k'
-})
-
-local function getTarget(seat)
-	if tempList[seat] and tempList[seat].Health > 0 and not tempList[seat].Humanoid.Sit then
-		return tempList[seat]
-	end
-
-	if entitylib.isAlive then
-		local cloned = table.clone(entitylib.List)
-		table.sort(cloned, function(a, b)
-			return (lastFling[a.Player.Name] or 0) < (lastFling[b.Player.Name] or 0)
-		end)
-
-		for _, entity in cloned do
-			if not select(2, whitelist:get(entity.Player)) then continue end
-			if entity.Player.Team == teams.Neutral then continue end
-			if not (entity.Humanoid.Sit and entity.Humanoid.SeatPart.Anchored) and entity.Humanoid.Health > 0 and (os.clock() - entity.SpawnTime) > 5 then
-				lastFling[entity.Player.Name] = os.clock()
-				tempList[seat] = entity
-				table.clear(cloned)
-				notif('KickAll', 'Attempted fling: '..entity.Player.Name, 5)
-				return entity
-			end
+	local Movement
+	local AutoRejoin
+	local didClick = {}
+	local lastFling = {}
+	local tempList = setmetatable({}, {
+		__mode = 'k'
+	})
+	
+	local function getTarget(seat)
+		if tempList[seat] and tempList[seat].Health > 0 and not tempList[seat].Humanoid.Sit then
+			return tempList[seat]
 		end
-
-		table.clear(cloned)
-	end
-end
-
-KickAll = vape.Categories.Blatant:CreateModule({
-	Name = 'KickAll',
-	Function = function(callback)
-		if callback then
-			if not vape.Modules.AntiFling.Enabled then
-				vape.Modules.AntiFling:Toggle()
-			end
-
-			local spawnPos = Vector3.new(616, 97, 2494)
-
-			if entitylib.isAlive then
-				entitylib.character.RootPart.CFrame = CFrame.new(spawnPos)
-				entitylib.character.RootPart.AssemblyLinearVelocity = Vector3.zero
-			end
-
-			KickAll:Clean(entitylib.Events.LocalAdded:Connect(function(char)
-				if char and char.RootPart and KickAll.Enabled then
-					char.RootPart.CFrame = CFrame.new(spawnPos)
-					char.RootPart.AssemblyLinearVelocity = Vector3.zero
+	
+		if entitylib.isAlive then
+			local cloned = table.clone(entitylib.List)
+			table.sort(cloned, function(a, b)
+				return (lastFling[a.Player.Name] or 0) < (lastFling[b.Player.Name] or 0)
+			end)
+	
+			for _, entity in cloned do
+				if not select(2, whitelist:get(entity.Player)) then continue end
+				if entity.Player.Team == teams.Neutral then continue end
+				if not (entity.Humanoid.Sit and entity.Humanoid.SeatPart.Anchored) and entity.Humanoid.Health > 0 and (os.clock() - entity.SpawnTime) > 5 then
+					lastFling[entity.Player.Name] = os.clock()
+					tempList[seat] = entity
+					table.clear(cloned)
+					notif('KickAll', 'Attempted fling: '..entity.Player.Name, 5)
+					return entity
 				end
-			end))
-
-			local reqTimer = os.clock()
-			local startTime = os.clock()
-			local dir = 0
-			KickAll:Clean(runService.Heartbeat:Connect(function(dt)
-				if lplr.Team == teams.Neutral then
-					local gui = lplr.PlayerGui:FindFirstChild('TeamsFrame', true)
-					if gui then
-						for _, holder in gui:GetChildren() do
-							if holder.Button.AutoButtonColor then
-								firesignal(holder.Button.MouseButton1Click)
-								break
+			end
+	
+			table.clear(cloned)
+		end
+	end
+	
+	KickAll = vape.Categories.Blatant:CreateModule({
+		Name = 'KickAll',
+		Function = function(callback)
+			if callback then
+				if not vape.Modules.AntiFling.Enabled then
+					vape.Modules.AntiFling:Toggle()
+				end
+	
+				local reqTimer = os.clock()
+				local startTime = os.clock()
+				local dir = 0
+				KickAll:Clean(runService.Heartbeat:Connect(function(dt)
+					if lplr.Team == teams.Neutral then
+						local gui = lplr.PlayerGui:FindFirstChild('TeamsFrame', true)
+						if gui then
+							for _, holder in gui:GetChildren() do
+								if holder.Button.AutoButtonColor then
+									firesignal(holder.Button.MouseButton1Click)
+									break
+								end
+							end
+						end
+	
+						return
+					end
+	
+					if AutoRejoin.Enabled then
+						local plrCount = #teams.Guards:GetPlayers() + #teams.Inmates:GetPlayers() + #teams.Criminals:GetPlayers()
+	
+						if ((os.clock() - startTime) > 6 * 60 or plrCount <= 10) then
+							if (os.clock() - reqTimer) > 1 then
+								vape.Modules.ServerHop:Toggle()
+								reqTimer = os.clock()
+							end
+	
+							return
+						end
+					end
+	
+					if entitylib.isAlive then
+						local root = entitylib.character.RootPart
+						local didMove
+	
+						for _, button in workspace.Prison_ITEMS.buttons:GetChildren() do
+							if button.Name == 'Car Spawner' then
+								local mag = (button['Car Spawner'].Position - root.Position).Magnitude
+								if mag < 15 and (didClick[button] or 0) < os.clock() then
+									didClick[button] = os.clock() + 0.2
+									task.spawn(function()
+										replicatedStorage.Remotes.InteractWithItem:InvokeServer(button['Car Spawner'])
+									end)
+								end
+	
+								if mag < 50 and button['Car Spawner'].BrickColor == BrickColor.new('Cyan') and not didMove then
+									local diff = math.clamp((button['Car Spawner'].Position - root.Position).X, -1, 1)
+									dir = math.clamp(dir + (diff * dt * 26), -12, 14)
+									didMove = true
+								end
+							end
+						end
+	
+						if not didMove then
+							local diff = math.clamp(0 - dir, -1, 1)
+							dir = math.clamp(dir + (diff * dt * 26), -12, 14)
+						end
+	
+						if Movement.Enabled and ((root.Position - Vector3.new(633, 98, 2489)).Magnitude < 40 or (os.clock() - entitylib.character.SpawnTime) < 0.4) then
+							root.CFrame = CFrame.new(Vector3.new(610 + dir, 90, 2494))
+							root.AssemblyLinearVelocity = Vector3.zero
+						end
+	
+						for _, seat in workspace.CarContainer:QueryDescendants('VehicleSeat') do
+							if isnetworkowner(seat) then
+								local target = getTarget(seat)
+								if target then
+									seat.AssemblyLinearVelocity = Vector3.new(10000, 10000, 0)
+									seat.CFrame = CFrame.new(target.RootPart.Position) * CFrame.new(-2, -2, -12)
+									sethiddenproperty(seat, 'PhysicsRepRootPart', target.RootPart)
+	
+									local wheels = seat.Parent.Parent:FindFirstChild('Wheels')
+									if wheels then
+										wheels:Destroy()
+									end
+								end
 							end
 						end
 					end
+				end))
+			end
+		end,
+		Tooltip = 'aesthetical, just remove collisions on vehicles please, this is the worst.'
+	})
+	Movement = KickAll:CreateToggle({
+		Name = 'Movement',
+		Default = true
+	})
+	AutoRejoin = KickAll:CreateToggle({
+		Name = 'AutoRejoin'
+	})
+end)
 
-					return
-				end
+run(function()
+	local KickPlayer
+	local Movement
+	local didClick = {}
+	local tempList = setmetatable({}, {
+		__mode = 'k'
+	})
 
-				if AutoRejoin.Enabled then
-					local plrCount = #teams.Guards:GetPlayers() + #teams.Inmates:GetPlayers() + #teams.Criminals:GetPlayers()
+	local GuardTarget
+	local InmateTarget
+	local CriminalTarget
+	local NeutralTarget
 
-					if ((os.clock() - startTime) > 6 * 60 or plrCount <= 10) then
-						if (os.clock() - reqTimer) > 1 then
-							vape.Modules.ServerHop:Toggle()
-							reqTimer = os.clock()
-						end
+	local activeTarget = nil
+	local watcherConns = {}
+	local dir = 0
 
-						return
+	local function playerNames(teamName)
+		local names = {'None'}
+		for _, player in playersService:GetPlayers() do
+			if player ~= lplr and player.Team and player.Team.Name == teamName then
+				table.insert(names, player.DisplayName .. ' - ' .. player.Name)
+			end
+		end
+		return names
+	end
+
+	local function getTargetPlayer(value)
+		local username = value:match(' %- (.+)$')
+		return username and playersService:FindFirstChild(username)
+	end
+
+	local function selectedTarget()
+		for _, value in {GuardTarget.Value, InmateTarget.Value, CriminalTarget.Value} do
+			local player = getTargetPlayer(value)
+			if player then return player end
+		end
+	end
+
+	local function refreshTargets()
+		GuardTarget:Change(playerNames('Guards'))
+		InmateTarget:Change(playerNames('Inmates'))
+		CriminalTarget:Change(playerNames('Criminals'))
+		NeutralTarget:Change(playerNames('Neutral'))
+	end
+
+	local function findEntity(player)
+		if not entitylib.isAlive then return end
+		for _, entity in entitylib.List do
+			if entity.Player == player then
+				return entity
+			end
+		end
+	end
+
+	local function isValidTarget(entity)
+		if not entity then return false end
+		if not entity.Humanoid or entity.Humanoid.Health <= 0 then return false end
+		if entity.Humanoid.Sit and entity.Humanoid.SeatPart and entity.Humanoid.SeatPart.Anchored then return false end
+		if not select(2, whitelist:get(entity.Player)) then return false end
+		if entity.Player.Team == teams.Neutral then return false end
+		if (os.clock() - entity.SpawnTime) <= 5 then return false end
+		return true
+	end
+
+	local function getTarget(seat)
+		local targetPlayer = selectedTarget()
+		if not targetPlayer then return end
+
+		local cached = tempList[seat]
+		if cached and cached.Player == targetPlayer and cached.Health > 0 and not cached.Humanoid.Sit then
+			return cached
+		end
+
+		local entity = findEntity(targetPlayer)
+		if not isValidTarget(entity) then return end
+
+		tempList[seat] = entity
+		notif('KickPlayer', 'Attempted fling: '..entity.Player.Name, 5)
+		return entity
+	end
+
+	local function flingSeat(seat, target)
+		seat.AssemblyLinearVelocity = Vector3.new(10000, 10000, 0)
+		seat.CFrame = CFrame.new(target.RootPart.Position) * CFrame.new(-2, -2, -12)
+		sethiddenproperty(seat, 'PhysicsRepRootPart', target.RootPart)
+
+		local wheels = seat.Parent.Parent:FindFirstChild('Wheels')
+		if wheels then
+			wheels:Destroy()
+		end
+	end
+
+	local function clearWatchers()
+		for _, conn in watcherConns do
+			conn:Disconnect()
+		end
+		table.clear(watcherConns)
+		activeTarget = nil
+	end
+
+	local function watchTarget(plr)
+		clearWatchers()
+		if not plr then return end
+
+		activeTarget = plr
+
+		table.insert(watcherConns, playersService.PlayerRemoving:Connect(function(removed)
+			if removed == plr and KickPlayer and KickPlayer.Enabled then
+				notif('KickPlayer', plr.Name..' has been kicked / left. Disabling.', 5)
+				task.defer(function()
+					if KickPlayer.Enabled then
+						KickPlayer:Toggle()
 					end
+				end)
+			end
+		end))
+	end
+
+	KickPlayer = vape.Categories.Blatant:CreateModule({
+		Name = 'KickPlayer',
+		Function = function(callback)
+			if callback then
+				if vape.Modules.AntiFling and not vape.Modules.AntiFling.Enabled then
+					vape.Modules.AntiFling:Toggle()
 				end
 
-				if entitylib.isAlive then
+				watchTarget(selectedTarget())
+
+				KickPlayer:Clean(runService.Heartbeat:Connect(function(dt)
+					if not entitylib.isAlive then return end
+
+					local sel = selectedTarget()
+					if sel and sel ~= activeTarget then
+						watchTarget(sel)
+					end
+
 					local root = entitylib.character.RootPart
-
-					if (root.Position - spawnPos).Magnitude > 35 then
-						root.CFrame = CFrame.new(spawnPos)
-						root.AssemblyLinearVelocity = Vector3.zero
-						return
-					end
-
 					local didMove
 
 					for _, button in workspace.Prison_ITEMS.buttons:GetChildren() do
@@ -1858,284 +2035,63 @@ KickAll = vape.Categories.Blatant:CreateModule({
 						dir = math.clamp(dir + (diff * dt * 26), -12, 14)
 					end
 
-					if Movement.Enabled then
-						root.CFrame = CFrame.new(Vector3.new(616 + dir, 97, 2494))
+					if Movement.Enabled and ((root.Position - Vector3.new(633, 98, 2489)).Magnitude < 40 or (os.clock() - entitylib.character.SpawnTime) < 0.4) then
+						root.CFrame = CFrame.new(Vector3.new(610 + dir, 90, 2494))
 						root.AssemblyLinearVelocity = Vector3.zero
 					end
+
+					if not selectedTarget() then return end
 
 					for _, seat in workspace.CarContainer:QueryDescendants('VehicleSeat') do
 						if isnetworkowner(seat) then
 							local target = getTarget(seat)
 							if target then
-								seat.AssemblyLinearVelocity = Vector3.new(10000, 10000, 0)
-								seat.CFrame = CFrame.new(target.RootPart.Position) * CFrame.new(-2, -2, -12)
-								sethiddenproperty(seat, 'PhysicsRepRootPart', target.RootPart)
-
-								local wheels = seat.Parent.Parent:FindFirstChild('Wheels')
-								if wheels then
-									wheels:Destroy()
-								end
+								flingSeat(seat, target)
 							end
 						end
 					end
-				end
-			end))
-		end
-	end,
-	Tooltip = 'aesthetical, just remove collisions on vehicles please, this is the worst.'
-})
-Movement = KickAll:CreateToggle({
-	Name = 'Movement',
-	Default = true
-})
-AutoRejoin = KickAll:CreateToggle({
-	Name = 'AutoRejoin'
-})
-end)
-
-run(function()
-local KickPlayer
-local Movement
-local didClick = {}
-local tempList = setmetatable({}, {
-	__mode = 'k'
-})
-
-local GuardTarget
-local InmateTarget
-local CriminalTarget
-local NeutralTarget
-
-local activeTarget = nil
-local watcherConns = {}
-local dir = 0
-
-local function playerNames(teamName)
-	local names = {'None'}
-	for _, player in playersService:GetPlayers() do
-		if player ~= lplr and player.Team and player.Team.Name == teamName then
-			table.insert(names, player.DisplayName .. ' - ' .. player.Name)
-		end
-	end
-	return names
-end
-
-local function getTargetPlayer(value)
-	local username = value:match(' %- (.+)$')
-	return username and playersService:FindFirstChild(username)
-end
-
-local function selectedTarget()
-	for _, value in {GuardTarget.Value, InmateTarget.Value, CriminalTarget.Value} do
-		local player = getTargetPlayer(value)
-		if player then return player end
-	end
-end
-
-local function refreshTargets()
-	GuardTarget:Change(playerNames('Guards'))
-	InmateTarget:Change(playerNames('Inmates'))
-	CriminalTarget:Change(playerNames('Criminals'))
-	NeutralTarget:Change(playerNames('Neutral'))
-end
-
-local function findEntity(player)
-	if not entitylib.isAlive then return end
-	for _, entity in entitylib.List do
-		if entity.Player == player then
-			return entity
-		end
-	end
-end
-
-local function isValidTarget(entity)
-	if not entity then return false end
-	if not entity.Humanoid or entity.Humanoid.Health <= 0 then return false end
-	if entity.Humanoid.Sit and entity.Humanoid.SeatPart and entity.Humanoid.SeatPart.Anchored then return false end
-	if not select(2, whitelist:get(entity.Player)) then return false end
-	if entity.Player.Team == teams.Neutral then return false end
-	if (os.clock() - entity.SpawnTime) <= 5 then return false end
-	return true
-end
-
-local function getTarget(seat)
-	local targetPlayer = selectedTarget()
-	if not targetPlayer then return end
-
-	-- Same cache style as KickAll: trust the cached entity if it's still live & not seated.
-	local cached = tempList[seat]
-	if cached and cached.Player == targetPlayer and cached.Health > 0 and not cached.Humanoid.Sit then
-		return cached
-	end
-
-	local entity = findEntity(targetPlayer)
-	if not isValidTarget(entity) then return end
-
-	tempList[seat] = entity
-	notif('KickPlayer', 'Attempted fling: '..entity.Player.Name, 5)
-	return entity
-end
-
-local function flingSeat(seat, target)
-	seat.AssemblyLinearVelocity = Vector3.new(10000, 10000, 0)
-	seat.CFrame = CFrame.new(target.RootPart.Position) * CFrame.new(-2, -2, -12)
-	sethiddenproperty(seat, 'PhysicsRepRootPart', target.RootPart)
-
-	local wheels = seat.Parent.Parent:FindFirstChild('Wheels')
-	if wheels then
-		wheels:Destroy()
-	end
-end
-
-local function clearWatchers()
-	for _, conn in watcherConns do
-		conn:Disconnect()
-	end
-	table.clear(watcherConns)
-	activeTarget = nil
-end
-
-local function watchTarget(plr)
-	clearWatchers()
-	if not plr then return end
-
-	activeTarget = plr
-
-	table.insert(watcherConns, playersService.PlayerRemoving:Connect(function(removed)
-		if removed == plr and KickPlayer and KickPlayer.Enabled then
-			notif('KickPlayer', plr.Name..' has been kicked / left. Disabling.', 5)
-			task.defer(function()
-				if KickPlayer.Enabled then
-					KickPlayer:Toggle()
-				end
-			end)
-		end
-	end))
-end
-
-KickPlayer = vape.Categories.Blatant:CreateModule({
-	Name = 'KickPlayer',
-	Function = function(callback)
-		if callback then
-			if vape.Modules.AntiFling and not vape.Modules.AntiFling.Enabled then
-				vape.Modules.AntiFling:Toggle()
+				end))
+			else
+				clearWatchers()
 			end
+		end,
+		Tooltip = 'Kicks player specifically. Auto-disables once the target is kicked.'
+	})
 
-			local spawnPos = Vector3.new(616, 97, 2494)
+	Movement = KickPlayer:CreateToggle({
+		Name = 'Movement',
+		Default = true
+	})
 
-			if entitylib.isAlive then
-				entitylib.character.RootPart.CFrame = CFrame.new(spawnPos)
-				entitylib.character.RootPart.AssemblyLinearVelocity = Vector3.zero
-			end
+	GuardTarget = KickPlayer:CreateDropdown({
+		Name = 'Guard',
+		List = playerNames('Guards')
+	})
+	InmateTarget = KickPlayer:CreateDropdown({
+		Name = 'Inmates',
+		List = playerNames('Inmates')
+	})
+	NeutralTarget = KickPlayer:CreateDropdown({
+		Name = 'Neutral',
+		List = playerNames('Neutral')
+	})
+	CriminalTarget = KickPlayer:CreateDropdown({
+		Name = 'Criminals',
+		List = playerNames('Criminals')
+	})
 
-			KickPlayer:Clean(entitylib.Events.LocalAdded:Connect(function(char)
-				if char and char.RootPart and KickPlayer.Enabled then
-					char.RootPart.CFrame = CFrame.new(spawnPos)
-					char.RootPart.AssemblyLinearVelocity = Vector3.zero
-				end
-			end))
-
-			watchTarget(selectedTarget())
-
-			KickPlayer:Clean(runService.Heartbeat:Connect(function(dt)
-				if not entitylib.isAlive then return end
-
-				local sel = selectedTarget()
-				if sel and sel ~= activeTarget then
-					watchTarget(sel)
-				end
-
-				local root = entitylib.character.RootPart
-
-				if (root.Position - spawnPos).Magnitude > 35 then
-					root.CFrame = CFrame.new(spawnPos)
-					root.AssemblyLinearVelocity = Vector3.zero
-					return
-				end
-
-				local didMove
-
-				-- KickAll's steering: walk toward the cyan Car Spawner and click any spawner in range.
-				for _, button in workspace.Prison_ITEMS.buttons:GetChildren() do
-					if button.Name == 'Car Spawner' then
-						local mag = (button['Car Spawner'].Position - root.Position).Magnitude
-						if mag < 15 and (didClick[button] or 0) < os.clock() then
-							didClick[button] = os.clock() + 0.2
-							task.spawn(function()
-								replicatedStorage.Remotes.InteractWithItem:InvokeServer(button['Car Spawner'])
-							end)
-						end
-
-						if mag < 50 and button['Car Spawner'].BrickColor == BrickColor.new('Cyan') and not didMove then
-							local diff = math.clamp((button['Car Spawner'].Position - root.Position).X, -1, 1)
-							dir = math.clamp(dir + (diff * dt * 26), -12, 14)
-							didMove = true
-						end
-					end
-				end
-
-				if not didMove then
-					local diff = math.clamp(0 - dir, -1, 1)
-					dir = math.clamp(dir + (diff * dt * 26), -12, 14)
-				end
-
-				if Movement.Enabled then
-					root.CFrame = CFrame.new(Vector3.new(616 + dir, 97, 2494))
-					root.AssemblyLinearVelocity = Vector3.zero
-				end
-
-				if not selectedTarget() then return end
-
-				for _, seat in workspace.CarContainer:QueryDescendants('VehicleSeat') do
-					if isnetworkowner(seat) then
-						local target = getTarget(seat)
-						if target then
-							flingSeat(seat, target)
-						end
-					end
-				end
-			end))
-		else
-			clearWatchers()
-		end
-	end,
-	Tooltip = 'Kicks player specifically. Auto-disables once the target is kicked.'
-})
-
-Movement = KickPlayer:CreateToggle({
-	Name = 'Movement',
-	Default = true
-})
-
-GuardTarget = KickPlayer:CreateDropdown({
-	Name = 'Guard',
-	List = playerNames('Guards')
-})
-InmateTarget = KickPlayer:CreateDropdown({
-	Name = 'Inmates',
-	List = playerNames('Inmates')
-})
-NeutralTarget = KickPlayer:CreateDropdown({
-	Name = 'Neutral',
-	List = playerNames('Neutral')
-})
-CriminalTarget = KickPlayer:CreateDropdown({
-	Name = 'Criminals',
-	List = playerNames('Criminals')
-})
-
-refreshTargets()
-
-playersService.PlayerAdded:Connect(function(player)
-	player:GetPropertyChangedSignal('Team'):Connect(refreshTargets)
 	refreshTargets()
-end)
-playersService.PlayerRemoving:Connect(refreshTargets)
-for _, player in playersService:GetPlayers() do
-	if player ~= lplr then
+
+	playersService.PlayerAdded:Connect(function(player)
 		player:GetPropertyChangedSignal('Team'):Connect(refreshTargets)
+		refreshTargets()
+	end)
+	playersService.PlayerRemoving:Connect(refreshTargets)
+	for _, player in playersService:GetPlayers() do
+		if player ~= lplr then
+			player:GetPropertyChangedSignal('Team'):Connect(refreshTargets)
+		end
 	end
-end
 end)
 
 run(function()
