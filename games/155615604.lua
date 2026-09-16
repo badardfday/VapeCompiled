@@ -1876,9 +1876,7 @@ run(function()
 	local KickPlayer
 	local Movement
 	local didClick = {}
-	local tempList = setmetatable({}, {
-		__mode = 'k'
-	})
+	local tempList = setmetatable({}, { __mode = 'k' })
 
 	local GuardTarget
 	local InmateTarget
@@ -1888,6 +1886,10 @@ run(function()
 	local activeTarget = nil
 	local watcherConns = {}
 	local dir = 0
+
+	-- [seat] = { target, part, att, ap }
+	local activeFlings = {}
+	local preSimConn = nil
 
 	local function playerNames(teamName)
 		local names = {'None'}
@@ -1927,8 +1929,8 @@ run(function()
 			end
 		end
 
-		-- Fallback: entitylib usually drops dead players from .List, so build a
-		-- minimal stand-in from the corpse's character so we can keep flinging it.
+		-- entitylib drops dead players from .List; rebuild a minimal entity from
+		-- the corpse so we can keep flinging it after death.
 		local char = player.Character
 		if char then
 			local hum = char:FindFirstChildOfClass('Humanoid')
@@ -1951,7 +1953,7 @@ run(function()
 		if entity.Humanoid.Sit and entity.Humanoid.SeatPart and entity.Humanoid.SeatPart.Anchored then return false end
 		if not select(2, whitelist:get(entity.Player)) then return false end
 		if entity.Player.Team == teams.Neutral then return false end
-		-- Only apply spawn protection while alive; dead targets bypass it.
+		-- Spawn protection only applies while alive.
 		if entity.Humanoid.Health > 0 and (os.clock() - entity.SpawnTime) <= 5 then return false end
 		return true
 	end
@@ -1960,8 +1962,6 @@ run(function()
 		local targetPlayer = selectedTarget()
 		if not targetPlayer then return end
 
-		-- Cache check no longer requires Health > 0, so a dead target stays cached
-		-- and we keep flinging the corpse.
 		local cached = tempList[seat]
 		if cached and cached.Player == targetPlayer and cached.Humanoid and not cached.Humanoid.Sit then
 			return cached
@@ -1975,14 +1975,16 @@ run(function()
 		return entity
 	end
 
+	-- Pick the part we anchor the fling to. Alive -> HumanoidRootPart.
+	-- Dead -> a torso/head part so the constraint has something with mass to
+	-- latch onto (HumanoidRootPart of a corpse is often parented out or
+	-- anchored by the time we get here).
 	local function getFlingPart(entity)
 		local root = entity.RootPart
 		if not root then return end
 
 		local isDead = entity.Humanoid and entity.Humanoid.Health <= 0
-		if not isDead then
-			return root
-		end
+		if not isDead then return root end
 
 		local char = root.Parent
 		if not char then return root end
@@ -1993,17 +1995,101 @@ run(function()
 			or root
 	end
 
-	local function flingSeat(seat, target)
+	local function stopFling(seat)
+		local e = activeFlings[seat]
+		if not e then return end
+		if e.ap then e.ap:Destroy() end
+		if e.att then e.att:Destroy() end
+		activeFlings[seat] = nil
+	end
+
+	local function startFling(seat, target)
 		local part = getFlingPart(target)
 		if not part then return end
 
-		seat.AssemblyLinearVelocity = Vector3.new(10000, 10000, 0)
-		seat.CFrame = CFrame.new(part.Position) * CFrame.new(-2, -2, -12)
+		stopFling(seat)
+
+		-- Kill the wheels so their mass doesn't eat the velocity
+		local wheels = seat.Parent and seat.Parent.Parent and seat.Parent.Parent:FindFirstChild('Wheels')
+		if wheels then wheels:Destroy() end
+
+		-- Constraint anchor on the seat. We DON'T set CFrame here — the
+		-- AlignPosition does the tracking, preserving physical momentum.
+		local att = Instance.new("Attachment")
+		att.Name = "KickAtt"
+		att.Parent = seat
+
+		local ap = Instance.new("AlignPosition")
+		ap.Name = "KickAlign"
+		ap.Mode = Enum.PositionAlignmentMode.OneAttachment
+		ap.Attachment0 = att
+		ap.MaxForce = math.huge
+		ap.Responsiveness = math.huge           -- effectively teleport-fast tracking
+		ap.Position = part.Position + Vector3.new(-2, -2, -12)
+		ap.Parent = seat
+
+		-- Redirect physics resolution onto the victim so the velocity they
+		-- receive is the seat's, not the seat's own.
 		sethiddenproperty(seat, 'PhysicsRepRootPart', part)
 
-		local wheels = seat.Parent.Parent:FindFirstChild('Wheels')
-		if wheels then
-			wheels:Destroy()
+		activeFlings[seat] = {
+			target = target,
+			part = part,
+			att = att,
+			ap = ap,
+		}
+	end
+
+	local function startPreSim()
+		if preSimConn then return end
+		preSimConn = runService.PreSimulation:Connect(function(dt)
+			for seat, entry in pairs(activeFlings) do
+				if not seat.Parent then
+					stopFling(seat)
+					continue
+				end
+
+				local target = entry.target
+				if not target or not target.Player or not target.Player.Parent then
+					stopFling(seat)
+					continue
+				end
+
+				-- Swap the anchor part if the target just died (alive part -> corpse part)
+				local newPart = getFlingPart(target)
+				if newPart and newPart ~= entry.part then
+					entry.part = newPart
+					sethiddenproperty(seat, 'PhysicsRepRootPart', newPart)
+				end
+
+				local part = entry.part
+				if not part or not part.Parent then
+					stopFling(seat)
+					continue
+				end
+
+				-- Re-apply every physics step so gravity/friction/damping can't eat it.
+				seat.AssemblyLinearVelocity = Vector3.new(10000, 10000, 10000)
+				seat.AssemblyAngularVelocity = Vector3.new(50000, 50000, 50000)
+
+				-- Keep the constraint anchored on the (possibly moving) victim.
+				if entry.ap then
+					entry.ap.Position = part.Position + Vector3.new(-2, -2, -12)
+				end
+			end
+		end)
+	end
+
+	local function stopPreSim()
+		if preSimConn then
+			preSimConn:Disconnect()
+			preSimConn = nil
+		end
+	end
+
+	local function clearAllFlings()
+		for seat in pairs(activeFlings) do
+			stopFling(seat)
 		end
 	end
 
@@ -2018,9 +2104,7 @@ run(function()
 	local function watchTarget(plr)
 		clearWatchers()
 		if not plr then return end
-
 		activeTarget = plr
-
 		table.insert(watcherConns, playersService.PlayerRemoving:Connect(function(removed)
 			if removed == plr and KickPlayer and KickPlayer.Enabled then
 				notif('KickPlayer', plr.Name..' has been kicked / left. Disabling.', 5)
@@ -2042,6 +2126,7 @@ run(function()
 				end
 
 				watchTarget(selectedTarget())
+				startPreSim()
 
 				KickPlayer:Clean(runService.Heartbeat:Connect(function(dt)
 					if not entitylib.isAlive then return end
@@ -2087,14 +2172,16 @@ run(function()
 					for _, seat in workspace.CarContainer:QueryDescendants('VehicleSeat') do
 						if isnetworkowner(seat) then
 							local target = getTarget(seat)
-							if target then
-								flingSeat(seat, target)
+							if target and not activeFlings[seat] then
+								startFling(seat, target)
 							end
 						end
 					end
 				end))
 			else
 				clearWatchers()
+				clearAllFlings()
+				stopPreSim()
 			end
 		end,
 		Tooltip = 'Kicks player specifically. Auto-disables once the target is kicked.'
@@ -2105,22 +2192,10 @@ run(function()
 		Default = true
 	})
 
-	GuardTarget = KickPlayer:CreateDropdown({
-		Name = 'Guard',
-		List = playerNames('Guards')
-	})
-	InmateTarget = KickPlayer:CreateDropdown({
-		Name = 'Inmates',
-		List = playerNames('Inmates')
-	})
-	NeutralTarget = KickPlayer:CreateDropdown({
-		Name = 'Neutral',
-		List = playerNames('Neutral')
-	})
-	CriminalTarget = KickPlayer:CreateDropdown({
-		Name = 'Criminals',
-		List = playerNames('Criminals')
-	})
+	GuardTarget = KickPlayer:CreateDropdown({ Name = 'Guard', List = playerNames('Guards') })
+	InmateTarget = KickPlayer:CreateDropdown({ Name = 'Inmates', List = playerNames('Inmates') })
+	NeutralTarget = KickPlayer:CreateDropdown({ Name = 'Neutral', List = playerNames('Neutral') })
+	CriminalTarget = KickPlayer:CreateDropdown({ Name = 'Criminals', List = playerNames('Criminals') })
 
 	refreshTargets()
 
