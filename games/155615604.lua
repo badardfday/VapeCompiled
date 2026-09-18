@@ -54,25 +54,20 @@ local function checkPoint(pos, params)
 end
 
 local function canClick()
-	local mousePosition = inputService:GetMouseLocation() - guiService:GetGuiInset()
-	local function hasBlockingGui(guiObjects)
-		for _, hit in guiObjects do
-			if hit and hit.Active and hit.Visible then
-				local obj = hit:FindFirstAncestorOfClass('ScreenGui')
-				if obj and obj.Enabled then
-					return true
-				end
-			end
+	local mousePosition = (inputService:GetMouseLocation() - guiService:GetGuiInset())
+
+	for _, hit in lplr.PlayerGui:GetGuiObjectsAtPosition(mousePosition.X, mousePosition.Y) do
+		local obj = v:FindFirstAncestorOfClass('ScreenGui')
+		if hit.Active and hit.Visible and obj and obj.Enabled then
+			return false
 		end
-		return false
 	end
 
-	if hasBlockingGui(lplr.PlayerGui:GetGuiObjectsAtPosition(mousePosition.X, mousePosition.Y)) then
-		return false
-	end
-
-	if hasBlockingGui(coreGui:GetGuiObjectsAtPosition(mousePosition.X, mousePosition.Y)) then
-		return false
+	for _, hit in coreGui:GetGuiObjectsAtPosition(mousePosition.X, mousePosition.Y) do
+		local obj = v:FindFirstAncestorOfClass('ScreenGui')
+		if hit.Active and hit.Visible and obj and obj.Enabled then
+			return false
+		end
 	end
 
 	return (not vape.gui.ScaledGui.ClickGui.Visible) and (not inputService:GetFocusedTextBox())
