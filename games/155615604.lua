@@ -2031,9 +2031,10 @@ run(function()
 	AutoRejoin = KickAll:CreateToggle({
 		Name = 'AutoRejoin'
 	})
+end)
 
 run(function()
-local KickPlayer
+	local KickPlayer
 local Movement
 local didClick = {}
 local tempList = setmetatable({}, { __mode = 'k' })
