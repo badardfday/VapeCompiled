@@ -54,20 +54,25 @@ local function checkPoint(pos, params)
 end
 
 local function canClick()
-	local mousePosition = (inputService:GetMouseLocation() - guiService:GetGuiInset())
-
-	for _, hit in lplr.PlayerGui:GetGuiObjectsAtPosition(mousePosition.X, mousePosition.Y) do
-		local obj = v:FindFirstAncestorOfClass('ScreenGui')
-		if hit.Active and hit.Visible and obj and obj.Enabled then
-			return false
+	local mousePosition = inputService:GetMouseLocation() - guiService:GetGuiInset()
+	local function hasBlockingGui(guiObjects)
+		for _, hit in guiObjects do
+			if hit and hit.Active and hit.Visible then
+				local obj = hit:FindFirstAncestorOfClass('ScreenGui')
+				if obj and obj.Enabled then
+					return true
+				end
+			end
 		end
+		return false
 	end
 
-	for _, hit in coreGui:GetGuiObjectsAtPosition(mousePosition.X, mousePosition.Y) do
-		local obj = v:FindFirstAncestorOfClass('ScreenGui')
-		if hit.Active and hit.Visible and obj and obj.Enabled then
-			return false
-		end
+	if hasBlockingGui(lplr.PlayerGui:GetGuiObjectsAtPosition(mousePosition.X, mousePosition.Y)) then
+		return false
+	end
+
+	if hasBlockingGui(coreGui:GetGuiObjectsAtPosition(mousePosition.X, mousePosition.Y)) then
+		return false
 	end
 
 	return (not vape.gui.ScaledGui.ClickGui.Visible) and (not inputService:GetFocusedTextBox())
@@ -1822,206 +1827,215 @@ run(function()
 end)
 
 run(function()
-local KickAll
-local Movement
-local AutoRejoin
-local didClick = {}
-local lastFling = {}
-local tempList = setmetatable({}, {
-	__mode = 'k'
-})
+	local KickAll
+	local Movement
+	local AutoRejoin
+	local didClick = {}
+	local lastFling = {}
+	local tempList = setmetatable({}, {
+		__mode = 'k'
+	})
 
-local function hasNetworkOwnership(seat)
-	if not seat:IsDescendantOf(workspace) then
-		return false
+	local function hasNetworkOwnership(seat)
+		if not seat:IsDescendantOf(workspace) then
+			return false
+		end
+
+		local ok, owned = pcall(isnetworkowner, seat)
+		return ok and owned == true
 	end
 
-	local ok, owned = pcall(isnetworkowner, seat)
-	return ok and owned == true
-end
+	local function getFlingPart(entity)
+		local root = entity.RootPart
+		if not root then
+			return
+		end
 
-local function getFlingPart(entity)
-	local root = entity.RootPart
-	if not root then return end
-	if entity.Humanoid and entity.Humanoid.Health > 0 then
-		return root
+		if entity.Humanoid and entity.Humanoid.Health > 0 then
+			return root
+		end
+
+		local character = root.Parent
+		return character and (
+			character:FindFirstChild('UpperTorso')
+			or character:FindFirstChild('Torso')
+			or character:FindFirstChild('Head')
+			or root
+		) or root
 	end
 
-	local character = root.Parent
-	return character and (character:FindFirstChild('UpperTorso')
-		or character:FindFirstChild('Torso')
-		or character:FindFirstChild('Head')
-		or root) or root
-end
+	local function stiffenVehicle(seat)
+		local vehicle = seat.Parent and seat.Parent.Parent
+		if not vehicle then
+			return
+		end
 
-local function stiffenVehicle(seat)
-	local vehicle = seat.Parent and seat.Parent.Parent
-	if not vehicle then return end
-
-	for _, descendant in vehicle:GetDescendants() do
-		if descendant:IsA('Motor6D') then
-			pcall(function() descendant.MaxForce = math.huge end)
-			pcall(function() descendant.MaxTorque = math.huge end)
-		elseif descendant:IsA('HingeConstraint')
-			or descendant:IsA('CylindricalConstraint')
-			or descendant:IsA('BallSocketConstraint')
-			or descendant:IsA('PrismaticConstraint')
-			or descendant:IsA('AlignPosition')
-			or descendant:IsA('AlignOrientation')
-		then
-			pcall(function() descendant.MaxForce = math.huge end)
-			pcall(function() descendant.MaxTorque = math.huge end)
-			pcall(function() descendant.MaxVelocity = math.huge end)
-			pcall(function() descendant.Responsiveness = math.huge end)
-		elseif descendant:IsA('Weld') or descendant:IsA('WeldConstraint') then
-			pcall(function() descendant.Enabled = true end)
+		for _, descendant in vehicle:GetDescendants() do
+			if descendant:IsA('Motor6D') then
+				pcall(function() descendant.MaxForce = math.huge end)
+				pcall(function() descendant.MaxTorque = math.huge end)
+			elseif descendant:IsA('HingeConstraint')
+				or descendant:IsA('CylindricalConstraint')
+				or descendant:IsA('BallSocketConstraint')
+				or descendant:IsA('PrismaticConstraint')
+				or descendant:IsA('AlignPosition')
+				or descendant:IsA('AlignOrientation')
+			then
+				pcall(function() descendant.MaxForce = math.huge end)
+				pcall(function() descendant.MaxTorque = math.huge end)
+				pcall(function() descendant.MaxVelocity = math.huge end)
+				pcall(function() descendant.Responsiveness = math.huge end)
+			elseif descendant:IsA('Weld') or descendant:IsA('WeldConstraint') then
+				pcall(function() descendant.Enabled = true end)
+			end
 		end
 	end
-end
 
-local function flingSeat(seat, target)
-	local part = getFlingPart(target)
-	if not part then return end
+	local function flingSeat(seat, target)
+		local part = getFlingPart(target)
+		if not part then
+			return
+		end
 
-	if target.Humanoid and target.Humanoid.Health <= 0 then
-		stiffenVehicle(seat)
-		seat.AssemblyLinearVelocity = Vector3.new(10000, 10000, 10000)
-		seat.AssemblyAngularVelocity = Vector3.new(20000, 20000, 20000)
+		if target.Humanoid and target.Humanoid.Health <= 0 then
+			stiffenVehicle(seat)
+			seat.AssemblyLinearVelocity = Vector3.new(10000, 10000, 10000)
+			seat.AssemblyAngularVelocity = Vector3.new(20000, 20000, 20000)
+			seat.CFrame = CFrame.new(part.Position) * CFrame.new(-2, -2, -12)
+			return
+		end
+
+		sethiddenproperty(seat, 'PhysicsRepRootPart', part)
+		seat.AssemblyLinearVelocity = Vector3.new(10000, 10000, 0)
 		seat.CFrame = CFrame.new(part.Position) * CFrame.new(-2, -2, -12)
-		return
+
+		local vehicle = seat.Parent and seat.Parent.Parent
+		local wheels = vehicle and vehicle:FindFirstChild('Wheels')
+		if wheels then
+			wheels:Destroy()
+		end
 	end
 
-	sethiddenproperty(seat, 'PhysicsRepRootPart', part)
-	seat.AssemblyLinearVelocity = Vector3.new(10000, 10000, 0)
-	seat.CFrame = CFrame.new(part.Position) * CFrame.new(-2, -2, -12)
-
-	local vehicle = seat.Parent and seat.Parent.Parent
-	local wheels = vehicle and vehicle:FindFirstChild('Wheels')
-	if wheels then
-		wheels:Destroy()
-	end
-end
-
-local function getTarget(seat)
-	if tempList[seat] and tempList[seat].Humanoid and not tempList[seat].Humanoid.Sit then
-		return tempList[seat]
-	end
-
-	if entitylib.isAlive then
-		local cloned = table.clone(entitylib.List)
-		table.sort(cloned, function(a, b)
-			return (lastFling[a.Player.Name] or 0) < (lastFling[b.Player.Name] or 0)
-		end)
-
-		for _, entity in cloned do
-			if not select(2, whitelist:get(entity.Player)) then continue end
-			if entity.Player.Team == teams.Neutral then continue end
-			if not (entity.Humanoid.Sit and entity.Humanoid.SeatPart.Anchored) and (os.clock() - entity.SpawnTime) > 5 then
-				lastFling[entity.Player.Name] = os.clock()
-				tempList[seat] = entity
-				table.clear(cloned)
-				notif('KickAll', 'Attempted fling: '..entity.Player.Name, 5)
-				return entity
-			end
+	local function getTarget(seat)
+		if tempList[seat] and tempList[seat].Humanoid and not tempList[seat].Humanoid.Sit then
+			return tempList[seat]
 		end
 
-		table.clear(cloned)
-	end
-end
+		if entitylib.isAlive then
+			local cloned = table.clone(entitylib.List)
+			table.sort(cloned, function(a, b)
+				return (lastFling[a.Player.Name] or 0) < (lastFling[b.Player.Name] or 0)
+			end)
 
-KickAll = vape.Categories.Blatant:CreateModule({
-	Name = 'KickAll',
-	Function = function(callback)
-		if callback then
-			if not vape.Modules.AntiFling.Enabled then
-				vape.Modules.AntiFling:Toggle()
+			for _, entity in cloned do
+				if not select(2, whitelist:get(entity.Player)) then continue end
+				if entity.Player.Team == teams.Neutral then continue end
+				if not (entity.Humanoid.Sit and entity.Humanoid.SeatPart.Anchored) and (os.clock() - entity.SpawnTime) > 5 then
+					lastFling[entity.Player.Name] = os.clock()
+					tempList[seat] = entity
+					table.clear(cloned)
+					notif('KickAll', 'Attempted fling: ' .. entity.Player.Name, 5)
+					return entity
+			end
 			end
 
-			local reqTimer = os.clock()
-			local startTime = os.clock()
-			local dir = 0
-			KickAll:Clean(runService.Heartbeat:Connect(function(dt)
-				if lplr.Team == teams.Neutral then
-					local gui = lplr.PlayerGui:FindFirstChild('TeamsFrame', true)
-					if gui then
-						for _, holder in gui:GetChildren() do
-							if holder.Button.AutoButtonColor then
-								firesignal(holder.Button.MouseButton1Click)
-								break
-							end
-						end
-					end
+			table.clear(cloned)
+		end
+	end
 
-					return
+	KickAll = vape.Categories.Blatant:CreateModule({
+		Name = 'KickAll',
+		Function = function(callback)
+			if callback then
+				if not vape.Modules.AntiFling.Enabled then
+					vape.Modules.AntiFling:Toggle()
 				end
 
-				if AutoRejoin.Enabled then
-					local plrCount = #teams.Guards:GetPlayers() + #teams.Inmates:GetPlayers() + #teams.Criminals:GetPlayers()
-
-					if ((os.clock() - startTime) > 6 * 60 or plrCount <= 10) then
-						if (os.clock() - reqTimer) > 1 then
-							vape.Modules.ServerHop:Toggle()
-							reqTimer = os.clock()
+				local reqTimer = os.clock()
+				local startTime = os.clock()
+				local dir = 0
+				KickAll:Clean(runService.Heartbeat:Connect(function(dt)
+					if lplr.Team == teams.Neutral then
+						local gui = lplr.PlayerGui:FindFirstChild('TeamsFrame', true)
+						if gui then
+							for _, holder in gui:GetChildren() do
+								if holder.Button.AutoButtonColor then
+									firesignal(holder.Button.MouseButton1Click)
+									break
+								end
+							end
 						end
 
 						return
 					end
-				end
 
-				if entitylib.isAlive then
-					local root = entitylib.character.RootPart
-					local didMove
+					if AutoRejoin.Enabled then
+						local plrCount = #teams.Guards:GetPlayers() + #teams.Inmates:GetPlayers() + #teams.Criminals:GetPlayers()
 
-					for _, button in workspace.Prison_ITEMS.buttons:GetChildren() do
-						if button.Name == 'Car Spawner' then
-							local mag = (button['Car Spawner'].Position - root.Position).Magnitude
-							if mag < 15 and (didClick[button] or 0) < os.clock() then
-								didClick[button] = os.clock() + 0.2
-								task.spawn(function()
-									replicatedStorage.Remotes.InteractWithItem:InvokeServer(button['Car Spawner'])
-								end)
+						if ((os.clock() - startTime) > 6 * 60 or plrCount <= 10) then
+							if (os.clock() - reqTimer) > 1 then
+								vape.Modules.ServerHop:Toggle()
+								reqTimer = os.clock()
 							end
 
-							if mag < 50 and button['Car Spawner'].BrickColor == BrickColor.new('Cyan') and not didMove then
-								local diff = math.clamp((button['Car Spawner'].Position - root.Position).X, -1, 1)
-								dir = math.clamp(dir + (diff * dt * 26), -12, 14)
-								didMove = true
-							end
+							return
 						end
 					end
 
-					if not didMove then
-						local diff = math.clamp(0 - dir, -1, 1)
-						dir = math.clamp(dir + (diff * dt * 26), -12, 14)
-					end
+					if entitylib.isAlive then
+						local root = entitylib.character.RootPart
+						local didMove
 
-					if Movement.Enabled and ((root.Position - Vector3.new(633, 98, 2489)).Magnitude < 40 or (os.clock() - entitylib.character.SpawnTime) < 0.4) then
-						root.CFrame = CFrame.new(Vector3.new(610 + dir, 90, 2494))
-						root.AssemblyLinearVelocity = Vector3.zero
-					end
+						for _, button in workspace.Prison_ITEMS.buttons:GetChildren() do
+							if button.Name == 'Car Spawner' then
+								local mag = (button['Car Spawner'].Position - root.Position).Magnitude
+								if mag < 15 and (didClick[button] or 0) < os.clock() then
+									didClick[button] = os.clock() + 0.2
+									task.spawn(function()
+										replicatedStorage.Remotes.InteractWithItem:InvokeServer(button['Car Spawner'])
+									end)
+								end
 
-					for _, seat in workspace.CarContainer:QueryDescendants('VehicleSeat') do
-						if hasNetworkOwnership(seat) then
-							local target = getTarget(seat)
-							if target then
-								flingSeat(seat, target)
+								if mag < 50 and button['Car Spawner'].BrickColor == BrickColor.new('Cyan') and not didMove then
+									local diff = math.clamp((button['Car Spawner'].Position - root.Position).X, -1, 1)
+									dir = math.clamp(dir + (diff * dt * 26), -12, 14)
+									didMove = true
+								end
+							end
+						end
+
+						if not didMove then
+							local diff = math.clamp(0 - dir, -1, 1)
+							dir = math.clamp(dir + (diff * dt * 26), -12, 14)
+						end
+
+						if Movement.Enabled and ((root.Position - Vector3.new(633, 98, 2489)).Magnitude < 40 or (os.clock() - entitylib.character.SpawnTime) < 0.4) then
+							root.CFrame = CFrame.new(Vector3.new(610 + dir, 90, 2494))
+							root.AssemblyLinearVelocity = Vector3.zero
+						end
+
+						for _, seat in workspace.CarContainer:QueryDescendants('VehicleSeat') do
+							if hasNetworkOwnership(seat) then
+								local target = getTarget(seat)
+								if target then
+									flingSeat(seat, target)
+								end
 							end
 						end
 					end
-				end
-			end))
-		end
-	end,
-	Tooltip = 'aesthetical, just remove collisions on vehicles please, this is the worst.'
-})
-Movement = KickAll:CreateToggle({
-	Name = 'Movement',
-	Default = true
-})
-AutoRejoin = KickAll:CreateToggle({
-	Name = 'AutoRejoin'
-})
-end)
+				end))
+			end
+		end,
+		Tooltip = 'aesthetical, just remove collisions on vehicles please, this is the worst.'
+	})
+
+	Movement = KickAll:CreateToggle({
+		Name = 'Movement',
+		Default = true
+	})
+	AutoRejoin = KickAll:CreateToggle({
+		Name = 'AutoRejoin'
+	})
 
 run(function()
 local KickPlayer
@@ -2131,8 +2145,6 @@ local function getFlingPart(entity)
 		or root
 end
 
--- Make the whole vehicle one rigid mass by cranking every joint under it.
--- This is what lets the ram method push a corpse without wheels snapping off.
 local function stiffenVehicle(seat)
 	local vehicle = seat.Parent and seat.Parent.Parent
 	if not vehicle then return end
@@ -2165,14 +2177,11 @@ local function flingSeat(seat, target)
 	local isDead = target.Humanoid and target.Humanoid.Health <= 0
 
 	if isDead then
-		-- Corpse: no PhysicsRepRootPart redirect (server owns the corpse, will
-		-- reject it). Instead stiffen the vehicle and ram physically.
 		stiffenVehicle(seat)
 		seat.AssemblyLinearVelocity = Vector3.new(10000, 10000, 10000)
 		seat.AssemblyAngularVelocity = Vector3.new(20000, 20000, 20000)
 		seat.CFrame = CFrame.new(part.Position) * CFrame.new(-2, -2, -12)
 	else
-		-- Alive: your working fling, unchanged.
 		seat.AssemblyLinearVelocity = Vector3.new(10000, 10000, 0)
 		seat.CFrame = CFrame.new(part.Position) * CFrame.new(-2, -2, -12)
 		sethiddenproperty(seat, 'PhysicsRepRootPart', part)
@@ -2222,6 +2231,11 @@ KickPlayer = vape.Categories.Blatant:CreateModule({
 				if not entitylib.isAlive then return end
 
 				local sel = selectedTarget()
+				if not sel then
+					clearWatchers()
+					return
+				end
+
 				if sel and sel ~= activeTarget then
 					watchTarget(sel)
 				end
@@ -2256,8 +2270,6 @@ KickPlayer = vape.Categories.Blatant:CreateModule({
 					root.CFrame = CFrame.new(Vector3.new(610 + dir, 90, 2494))
 					root.AssemblyLinearVelocity = Vector3.zero
 				end
-
-				if not selectedTarget() then return end
 
 				for _, seat in workspace.CarContainer:QueryDescendants('VehicleSeat') do
 					if isnetworkowner(seat) then
