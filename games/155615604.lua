@@ -1123,6 +1123,30 @@ run(function()
 			if not modified[part] then
 				modified[part] = {part.CanCollide, part.CanQuery}
 			end
+
+			if (part:IsA('Seat') or part:IsA('VehicleSeat')) and part.Name == part.ClassName then
+			local connection
+			local prox = Instance.new('ProximityPrompt')
+			prox.ActionText = 'Enter'
+			prox.Enabled = not part.Occupant
+			prox.MaxActivationDistance = 8
+			prox.RequiresLineOfSight = false
+			prox.Parent = part
+
+			prox.Triggered:Connect(function()
+				if entitylib.isAlive then
+					part:Sit(entitylib.character.Humanoid)
+				end
+			end)
+
+			prox.Destroying:Connect(function()
+				connection:Disconnect()
+			end)
+
+			connection = part:GetPropertyChangedSignal('Occupant'):Connect(function()
+				prox.Enabled = not part.Occupant
+			end)
+		end
 	
 			part.CanCollide = false
 			part.CanTouch = false
@@ -1130,22 +1154,27 @@ run(function()
 	end
 	
 	AntiFling = vape.Categories.Blatant:CreateModule({
-		Name = 'AntiFling',
-		Function = function(callback)
-			if callback then
-				AntiFling:Clean(workspace.CarContainer.DescendantAdded:Connect(Modify))
-				for _, part in workspace.CarContainer:QueryDescendants('BasePart') do
-					Modify(part)
-				end
-			else
-				for part, value in modified do
-					part.CanCollide = value[1]
-					part.CanTouch = value[2]
-				end
-				table.clear(modified)
+	Name = 'AntiFling',
+	Function = function(callback)
+		if callback then
+			AntiFling:Clean(workspace.CarContainer.DescendantAdded:Connect(Modify))
+			for _, part in workspace.CarContainer:QueryDescendants('BasePart') do
+				Modify(part)
 			end
-		end,
-		Tooltip = 'Prevent certain methods of flinging you'
+		else
+			for part, value in modified do
+				part.CanCollide = value[1]
+				part.CanTouch = value[2]
+			end
+
+			for _, prompt in workspace.CarContainer:QueryDescendants('ProximityPrompt') do
+				prompt:Destroy()
+			end
+
+			table.clear(modified)
+		end
+	end,
+	Tooltip = 'Prevent certain methods of flinging you'
 	})
 end)
 
@@ -1263,9 +1292,9 @@ run(function()
 					if entitylib.isAlive then
 						local root = entitylib.character.RootPart
 						local diff = math.clamp(root.Position.Y, -10, 179.99) - root.Position.Y
-						root.CFrame += Vector3.new(0, diff, 0)
 	
-						if math.abs(diff) > 0 and root.AssemblyLinearVelocity.Y > 0 then
+						if math.abs(diff) > 0 then
+						root.CFrame += Vector3.new(0, diff, 0)
 							root.AssemblyLinearVelocity *= Vector3.new(1, 0, 1)
 						end
 					end
@@ -1924,7 +1953,6 @@ run(function()
 
 			for _, entity in cloned do
 				if not select(2, whitelist:get(entity.Player)) then continue end
-				if entity.Player.Team == teams.Neutral then continue end
 				if not (entity.Humanoid.Sit and entity.Humanoid.SeatPart.Anchored) and (os.clock() - entity.SpawnTime) > 5 then
 					lastFling[entity.Player.Name] = os.clock()
 					tempList[seat] = entity
@@ -3088,6 +3116,28 @@ run(function()
 		Name = 'Auto Swap',
 		Tooltip = 'Automatically swap weapons when reloading'
 	})
+end)
+
+run(function()
+local AutoTeam
+
+AutoTeam = vape.Categories.Utility:CreateModule({
+	Name = 'AutoTeam',
+	Function = function(callback)
+		if callback then
+			local gui = lplr.PlayerGui:FindFirstChild('TeamsFrame', true)
+			if gui then
+				for _, holder in gui:GetChildren() do
+					if holder.Button.AutoButtonColor then
+						pickTeam(holder.Button)
+						break
+					end
+				end
+			end
+		end
+	end,
+	Tooltip = 'Automatically join a team when joining the server'
+})
 end)
 
 run(function()
